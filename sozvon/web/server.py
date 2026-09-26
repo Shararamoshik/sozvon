@@ -1,7 +1,6 @@
 """Локальный интерфейс с серверной сессией и проверкой Origin/CSRF."""
 from __future__ import annotations
 
-import json
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -9,16 +8,22 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from sozvon import __version__
+from sozvon.core.errors import ResourceConflict, RevisionConflict
 from sozvon.runtime.host import WorkerError
-from sozvon.services.application import Application
+from sozvon.services.application import Application, BusyError
+from sozvon.services.requests import ReportInput, TranscribeInput
 from sozvon.storage.repository import uid
+from sozvon.web.routes.export import create_router as export_router
+from sozvon.web.routes.templates import create_router as template_router
+from sozvon.web.routes.transcripts import create_router as transcript_router
 
 
 class TextInput(BaseModel):
@@ -82,11 +87,27 @@ def create_app(root: Path, *, worker_factory=None) -> FastAPI:
         )
         if path.startswith("/api/") or path == "/":
             response.headers["Cache-Control"] = "no-store"
+        elif path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
         return response
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(request, exc):
+        return JSONResponse({"detail": "Проверьте обязательные поля и формат значений"},
+                            status_code=422)
 
     @app.exception_handler(WorkerError)
     async def worker_error(request, exc):
         return JSONResponse({"detail": str(exc)[:500]}, status_code=422)
+
+    @app.exception_handler(RevisionConflict)
+    async def revision_conflict(request, exc):
+        return JSONResponse({"detail": str(exc), "current_revision": exc.current_revision},
+                            status_code=409)
+
+    @app.exception_handler(ResourceConflict)
+    async def resource_conflict(request, exc):
+        return JSONResponse({"detail": str(exc)}, status_code=409)
 
     @app.exception_handler(ValueError)
     async def value_error(request, exc):
@@ -170,9 +191,10 @@ def create_app(root: Path, *, worker_factory=None) -> FastAPI:
 
     @app.get("/api/meetings/{mid}")
     def detail(mid: str):
-        result = service.repo.detail(mid)
-        result["job"] = service.active(mid)
-        return result
+        with service._lock:
+            result = service.repo.detail(mid)
+            result["job"] = service.active(mid)
+            return result
 
     @app.put("/api/meetings/{mid}/notes")
     def notes(mid: str, body: NoteInput):
@@ -180,12 +202,12 @@ def create_app(root: Path, *, worker_factory=None) -> FastAPI:
         return {"saved": True}
 
     @app.post("/api/meetings/{mid}/report", status_code=202)
-    def report(mid: str):
-        return {"job_id": service.report(mid)}
+    def report(mid: str, body: ReportInput | None = None):
+        return {"job_id": service.report(mid, body)}
 
     @app.post("/api/meetings/{mid}/transcribe", status_code=202)
-    def transcribe(mid: str):
-        return {"job_id": service.transcribe(mid)}
+    def transcribe(mid: str, body: TranscribeInput | None = None):
+        return {"job_id": service.transcribe(mid, body)}
 
     @app.get("/api/settings")
     def settings():
@@ -193,7 +215,12 @@ def create_app(root: Path, *, worker_factory=None) -> FastAPI:
 
     @app.put("/api/settings")
     def settings_save(body: dict):
-        return service.save_settings(body)
+        try:
+            return service.save_settings(body)
+        except (BusyError, ResourceConflict, RevisionConflict):
+            raise
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
 
     @app.get("/api/devices")
     def devices():
@@ -212,39 +239,7 @@ def create_app(root: Path, *, worker_factory=None) -> FastAPI:
     def source(sid: str):
         return FileResponse(service.repo.source_path(sid))
 
-    @app.get("/api/meetings/{mid}/export")
-    def export(mid: str, format: str = "md"):
-        item = service.repo.detail(mid)
-        if format == "json":
-            item["transcript_history"] = service.repo.transcript_history(mid)
-            content = json.dumps(item, ensure_ascii=False, indent=2)
-            media = "application/json"
-        elif format == "md":
-            if item["reports"] and item["reports"][0]["stale"]:
-                raise HTTPException(409, "Отчёт устарел после изменения расшифровки. Создайте новую версию; JSON сохраняет историю.")
-            lines = [f"# {item['title']}", ""]
-            if item["reports"]:
-                document = item["reports"][0]["document"]
-                labels = {"summary": "Кратко", "decisions": "Решения", "proposals": "Предложения",
-                          "tasks": "Задачи", "questions": "Открытые вопросы", "risks": "Риски"}
-                for key, label in labels.items():
-                    lines.extend([f"## {label}", ""])
-                    for point in document.get(key, []):
-                        lines.append(f"- {point['text']}")
-                        if key == "tasks":
-                            lines.append(f"  Исполнитель: {point.get('owner') or 'Не назначен'}; "
-                                         f"срок: {point.get('due') or 'Не указан'}")
-                        for evidence in point.get("evidence", []):
-                            lines.append(f"  > {evidence['quote']} [фрагмент {evidence['segment_id']}]")
-                    lines.append("")
-            else:
-                lines.extend(["## Расшифровка", ""])
-                lines.extend(s["text"] for s in item["segments"])
-            content = "\n".join(lines)
-            media = "text/markdown"
-        else:
-            raise HTTPException(400, "Этот формат ещё не поддерживается")
-        return Response(content, media_type=media,
-                        headers={"Content-Disposition": f'attachment; filename="sozvon-{mid}.{format}"'})
-
+    app.include_router(transcript_router(service))
+    app.include_router(template_router(service))
+    app.include_router(export_router(service))
     return app

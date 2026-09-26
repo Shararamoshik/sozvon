@@ -59,6 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     from platformdirs import user_data_path
 
     from sozvon.instance import InstanceLock
+    from sozvon.web.lifecycle import ApplicationServer
     from sozvon.web.server import create_app
 
     root = (args.data_dir or user_data_path("sozvon", appauthor=False)).resolve()
@@ -74,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
         sock.bind(("127.0.0.1", 0))
     sock.listen(128)
     port = sock.getsockname()[1]
-    server = uvicorn.Server(uvicorn.Config(app, log_level="warning", access_log=False))
+    server = ApplicationServer(uvicorn.Config(app, log_level="warning", access_log=False))
     url = f"http://127.0.0.1:{port}/#key={app.state.launch_key}"
     runtime = root / "runtime.json"
 

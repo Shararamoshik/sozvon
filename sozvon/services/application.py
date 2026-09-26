@@ -1,13 +1,20 @@
 """Прикладные сценарии. Долгие операции исполняются отдельным процессом."""
 from __future__ import annotations
 
+import json
 import threading
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from urllib.parse import urlsplit
 
 from sozvon.audio.paths import local_path
 from sozvon.config import SettingsStore
+from sozvon.core.errors import ResourceConflict, RevisionConflict
+from sozvon.services.requests import ReportInput, TranscribeInput
+from sozvon.shared.network import is_loopback_url, validated_base_url
 from sozvon.storage.repository import Repository
+from sozvon.storage.templates import get_template
+from sozvon.storage.transcripts import save_recognition
 
 
 class BusyError(ValueError):
@@ -26,6 +33,8 @@ class Application:
         self._stop = threading.Event()
         self._current: str | None = None
         self._closed = False
+        self._export_lock = threading.Lock()
+        self._export_stop = threading.Event()
 
     def worker(self):
         if self._factory is not None:
@@ -69,8 +78,19 @@ class Application:
                                      stage=str(item.get("stage", "Выполняется")), progress=item)
 
         try:
-            result = self.worker().run(operation, payload, timeout=timeout,
-                                       stop_event=stop, on_event=event)
+            if operation in {"transcribe", "transcribe_cloud"}:
+                parent = self.root / "processing"
+                if any(p.is_symlink() or p.is_junction() for p in (parent, *parent.parents)):
+                    raise ValueError("Нужна локальная папка обработки без ссылок")
+                parent.mkdir(parents=True, exist_ok=True)
+                # Родитель владеет папкой: очистка работает и после kill зависшего worker.
+                with TemporaryDirectory(prefix="job-", dir=parent) as directory:
+                    processing = {**payload, "output_dir": directory}
+                    result = self.worker().run(operation, processing, timeout=timeout,
+                                               stop_event=stop, on_event=event)
+            else:
+                result = self.worker().run(operation, payload, timeout=timeout,
+                                           stop_event=stop, on_event=event)
             # Проверка и публикация разделены с stop одним замком: поздний ответ не побеждает отмену.
             with self._lock:
                 if stop.is_set() and operation != "record":
@@ -79,8 +99,13 @@ class Application:
                     return
                 if operation == "report":
                     self.repo.save_report(mid, result, transcript_revision=transcript_revision)
-                elif operation == "transcribe":
-                    self.repo.save_segments(mid, result["segments"])
+                elif operation in {"transcribe", "transcribe_cloud"}:
+                    secret = payload.get("api_key")
+                    if secret and json.dumps(secret, ensure_ascii=False)[1:-1] in json.dumps(result, ensure_ascii=False):
+                        raise ValueError("Ответ STT содержит конфиденциальные данные; расшифровка не сохранена")
+                    save_recognition(self.repo, mid, payload["base_revision"], result["segments"],
+                                     "cloud_stt" if operation == "transcribe_cloud" else "local_stt",
+                                     {k: result[k] for k in ("model", "device", "warnings", "timed") if k in result})
                 elif operation == "record":
                     for track in result["tracks"]:
                         self.repo.attach_source(mid, Path(track["path"]), track["source"],
@@ -108,18 +133,30 @@ class Application:
     def save_settings(self, candidate: dict) -> dict:
         with self._lock:
             self._ensure_idle()
+            if "template" in candidate:
+                if not isinstance(candidate["template"], str) or not 1 <= len(candidate["template"]) <= 64:
+                    raise ValueError("Недопустимый идентификатор шаблона")
+                template = get_template(self.repo, candidate["template"])
+                if template["archived"]:
+                    raise ResourceConflict("Выберите действующий шаблон")
             return self.settings.save(candidate)
 
-    def report(self, mid: str) -> str:
+    def report(self, mid: str, choice: ReportInput | None = None) -> str:
         with self._lock:
             self._ensure_idle()
-            return self._report(mid)
+            return self._report(mid, choice or ReportInput())
 
-    def _report(self, mid: str) -> str:
+    def _report(self, mid: str, choice: ReportInput) -> str:
         detail = self.repo.detail(mid)
         if not detail["segments"]:
             raise ValueError("Сначала добавьте текст или распознайте аудио")
         cfg, secret = self.settings.report_snapshot()
+        template = get_template(self.repo, choice.template_id or cfg["template"])
+        if template["archived"]:
+            raise ResourceConflict("Выберите действующий шаблон")
+        if choice.template_revision is not None and choice.template_revision != template["revision"]:
+            raise RevisionConflict(template["revision"])
+        snapshot = {key: template[key] for key in ("id", "revision", "spec")}
         llm = cfg["llm"]
         remote = urlsplit(llm["base_url"]).hostname not in {"127.0.0.1", "localhost", "::1"}
         if remote and not llm["allow_remote"]:
@@ -131,28 +168,48 @@ class Application:
             raise ValueError("Сохраните API-ключ в настройках отчёта")
         payload = {"base_url": llm["base_url"], "protocol": llm["protocol"], "model": llm["model"],
                    "api_key": secret, "timeout": 120, "segments": detail["segments"],
-                   "title": detail["title"], "template": cfg["template"], "language": "ru"}
+                   "title": detail["title"], "template": template["id"],
+                   "template_snapshot": snapshot, "language": snapshot["spec"]["language"]}
         return self._submit(mid, "report", payload, 135,
                             transcript_revision=detail["transcript_revision"])
 
-    def transcribe(self, mid: str) -> str:
+    def transcribe(self, mid: str, request: TranscribeInput | None = None) -> str:
         with self._lock:
             self._ensure_idle()
-            return self._transcribe(mid)
+            return self._transcribe(mid, request or TranscribeInput())
 
-    def _transcribe(self, mid: str) -> str:
+    def _transcribe(self, mid: str, request: TranscribeInput) -> str:
         detail = self.repo.detail(mid)
         if not detail["sources"]:
             raise ValueError("У этой записи нет аудиофайла")
-        cfg = self.settings.snapshot()["stt"]
-        if not cfg["model_path"] or not local_path(cfg["model_path"]).is_dir():
-            raise ValueError("Укажите папку установленной модели распознавания")
+        base = detail["transcript_revision"]
+        if request.base_revision is not None and request.base_revision != base:
+            raise RevisionConflict(base)
+        if base and (request.base_revision is None or not request.replace_confirmed):
+            raise ResourceConflict("Подтвердите создание новой версии расшифровки")
+        config, secret = self.settings.stt_snapshot()
+        cfg = config["stt"]
+        if cfg["engine"] == "cloud":
+            cloud = cfg["cloud"]
+            endpoint = validated_base_url(cloud["base_url"]) + "/audio/transcriptions"
+            if request.base_revision is None or request.cloud_confirmed_url != endpoint:
+                raise ResourceConflict("Подтвердите отправку аудио на текущий адрес сервиса")
+            if not is_loopback_url(cloud["base_url"]):
+                if not cloud["allow_remote"]:
+                    raise ResourceConflict("Разрешите отправку аудио во внешний сервис STT")
+                if not secret:
+                    raise ResourceConflict("Сохраните отдельный API-ключ распознавания")
+            payload = {**cloud, "api_key": secret or "", "language": cfg["language"]}
+            operation, timeout = "transcribe_cloud", cloud["timeout_s"] + 180
+        else:
+            if not cfg["model_path"] or not local_path(cfg["model_path"]).is_dir():
+                raise ValueError("Укажите папку установленной модели распознавания")
+            payload = {k: cfg[k] for k in ("model_path", "device", "language")}
+            payload["compute_type"] = "int8"
+            operation, timeout = "transcribe", 14400
         paths = [str(self.repo.source_path(s["id"])) for s in detail["sources"]]
-        output = self.root / "processing" / mid
-        output.mkdir(parents=True, exist_ok=True)
-        payload = {**cfg, "path": paths[0], "paths": paths, "compute_type": "int8",
-                   "output_dir": str(output)}
-        return self._submit(mid, "transcribe", payload, 14400)
+        payload.update(path=paths[0], paths=paths, base_revision=base)
+        return self._submit(mid, operation, payload, timeout)
 
     def start_recording(self, allow_partial: bool, max_seconds: int) -> dict:
         with self._lock:
@@ -181,8 +238,13 @@ class Application:
             thread.join(seconds)
         return not thread or not thread.is_alive()
 
-    def close(self):
+    def request_close(self):
+        """Только сигнал: HTTP-задачи должны получить его до ожидания Uvicorn."""
         with self._lock:
             self._closed = True
             self._stop.set()
+            self._export_stop.set()
+
+    def close(self):
+        self.request_close()
         self.wait(20)
