@@ -43,11 +43,17 @@ DOCX/PDF и единый экспорт. Встроенные шаблоны к�
 - record: payload `{output_dir:absolute_string, input_device:null|string, output_device:null|string, allow_partial:false, max_seconds:60}`. Микрофон sounddevice, system PyAudioWPatch WASAPI. Отдельные WAV-файлы по источнику; блоки пишутся вне колбэка, ограниченная очередь, отдельный формат каждого устройства. stop_event завершает с сохранением. Без обеих дорожек при allow_partial=false отказ до старта. emit уровни и duration; ответ `{tracks:[{source:'mic'|'system',path,duration_ms,sample_rate,channels,peak,rms}],duration_ms,warnings:[]}`. Поток явно стартуется. Для прототипа максимум записи настраиваемый <=14400 секунд; аварийное сегментированное восстановление пока не обещать.
 - При ошибке ValueError/RuntimeError с безопасной причиной; runtime переводит в error.
 
+## Встроенные шаблоны
+
+`builtin_ids()` — единственный источник списка: `meeting`, `client`, `technical`, `interview`
+(«Собеседование», `detail='brief'`, разделы про кандидата). Отсутствующие встроенные строки
+добавляются при открытии базы идемпотентно (`INSERT OR IGNORE`), версия схемы не повышается.
+
 ## LLM
 
 `sozvon.llm.provider.generate(payload,stop_event,emit)->dict`.
 
-payload `{base_url,protocol:'openai'|'anthropic',model,api_key:'',timeout:300,max_output_tokens:16384,segments:[...],title,template:'meeting'|'client'|'technical',language:'ru'}`.
+payload `{base_url,protocol:'openai'|'anthropic',model,api_key:'',timeout:300,max_output_tokens:16384,segments:[...],title,template:'meeting'|'client'|'technical'|'interview',language:'ru'}`.
 
 Настройки `llm.max_output_tokens`: строгое целое 256–65536, по умолчанию 16384;
 `llm.timeout_s`: строгое целое 10–600, по умолчанию 300. Они входят в атомарный
@@ -86,7 +92,7 @@ JSON ошибки `{detail:'Понятная причина'}`. fetch долже
 - POST `/api/meetings/{id}/report` `{}` -> `{job_id}`.
 - PUT `/api/meetings/{id}/notes` `{text}` -> `{saved:true}`.
 - GET `/api/meetings/{id}/export?format=md|json` -> download. Не показывать DOCX/SRT как готовые до подключения.
-- GET `/api/settings` -> `{llm:{base_url,protocol,model,configured,allow_remote:false},stt:{model_path,device,language},recording:{input_device:null,output_device:null},template:'meeting'|'client'|'technical',data_dir}`.
+- GET `/api/settings` -> `{llm:{base_url,protocol,model,configured,allow_remote:false},stt:{model_path,device,language},recording:{input_device:null,output_device:null},template:'meeting'|'client'|'technical'|'interview',data_dir}`.
 - PUT `/api/settings` кандидат той же структуры БЕЗ configured/data_dir; backend игнорирует только эти read-only поля. Поле `api_key` необязательно в llm: непустое сохраняет в keyring, пустое оставляет старый; delete_key:true удаляет. Никакой сырой ключ обратно.
 - GET `/api/devices` -> контракт devices; это может занять секунды, UI показывает состояние и не блокирует остальные экраны.
 - POST `/api/record/start` `{allow_partial:false,max_seconds:3600}` -> `{id,job_id}`.

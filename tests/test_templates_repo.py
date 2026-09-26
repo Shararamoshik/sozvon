@@ -1,7 +1,7 @@
 import pytest
 
 from sozvon.storage.repository import Repository
-from sozvon.templates.builtin import builtin_spec
+from sozvon.templates.builtin import builtin_ids, builtin_spec
 
 
 def test_create_survives_restart_as_independent_copy(tmp_path):
@@ -9,13 +9,13 @@ def test_create_survives_restart_as_independent_copy(tmp_path):
     repo = Repository(tmp_path)
     spec = builtin_spec("client")
     item = create_template(repo, spec)
-    assert item["id"] not in {"meeting", "client", "technical"}
+    assert item["id"] not in set(builtin_ids())
     assert not item["builtin"] and not item["archived"] and item["revision"] == 1
     assert item["spec"] == spec.model_dump()
     assert get_template(Repository(tmp_path), item["id"]) == item
     copy = create_template(repo, spec)
     assert copy["id"] != item["id"] and copy["spec"] == item["spec"]
-    assert len(list_templates(repo)) == 5
+    assert len(list_templates(repo)) == 6
 
 
 def test_save_keeps_historical_spec_with_cas(tmp_path):

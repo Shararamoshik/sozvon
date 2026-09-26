@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from sozvon.templates.builtin import builtin_spec
+from sozvon.templates.builtin import builtin_ids, builtin_spec
 
 DDL = (
     ("CREATE TABLE transcript_revisions (meeting_id TEXT NOT NULL REFERENCES meetings(id), "
@@ -22,11 +22,26 @@ DDL = (
 )
 
 
+def ensure_builtins(conn):
+    """Идемпотентно добавляет отсутствующие встроенные шаблоны.
+
+    Только INSERT OR IGNORE с фиксированными идентификаторами: пользовательские
+    шаблоны и их ревизии не затрагиваются, поэтому версия схемы не повышается и
+    база остаётся открываемой предыдущей сборкой.
+    """
+    created_at = datetime.now(UTC).isoformat()
+    for template_id in builtin_ids():
+        conn.execute("INSERT OR IGNORE INTO templates VALUES(?,1,0,?)", (template_id, created_at))
+        conn.execute("INSERT OR IGNORE INTO template_revisions VALUES(?,1,?,?)",
+                     (template_id, builtin_spec(template_id).model_dump_json(), created_at))
+
+
 def migrate(conn, root: Path, *, statements=DDL):
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version > 1:
         raise ValueError("База создана более новой версией приложения")
     if version == 1:
+        ensure_builtins(conn)
         return
     if conn.in_transaction:
         raise ValueError("Перед миграцией завершите текущую транзакцию")
@@ -49,7 +64,7 @@ def migrate(conn, root: Path, *, statements=DDL):
             (json.dumps({"timestamp_inferred": True}),),
         )
         created_at = datetime.now(UTC).isoformat()
-        for template_id in ("meeting", "client", "technical"):
+        for template_id in builtin_ids():
             conn.execute("INSERT INTO templates VALUES(?,1,0,?)", (template_id, created_at))
             conn.execute("INSERT INTO template_revisions VALUES(?,1,?,?)",
                          (template_id, builtin_spec(template_id).model_dump_json(), created_at))

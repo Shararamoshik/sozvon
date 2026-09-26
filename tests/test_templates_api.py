@@ -6,7 +6,7 @@ def test_template_copy_edit_archive_api(tmp_path):
     with client:
         response = client.get('/api/templates')
         assert response.status_code == 200
-        assert {t['id'] for t in response.json()['items']} == {'meeting', 'client', 'technical'}
+        assert {t['id'] for t in response.json()['items']} == {'meeting', 'client', 'technical', 'interview'}
         response = client.post('/api/templates/meeting/copy', json={'name': 'Мой шаблон'}, headers=headers)
         assert response.status_code == 201, response.text
         created = response.json()

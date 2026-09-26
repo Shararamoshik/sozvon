@@ -37,7 +37,7 @@ def test_legacy_database_keeps_every_row(tmp_path):
             assert parent is None and origin == "legacy" and timestamp == "2020-01-02"
             assert json.loads(metadata) == {"timestamp_inferred": True}
         assert conn.execute("SELECT id FROM templates ORDER BY id").fetchall() == [
-            ("client",), ("meeting",), ("technical",)]
+            ("client",), ("interview",), ("meeting",), ("technical",)]
     backups = list((tmp_path / "backups").glob("pre-v1-*.db"))
     assert len(backups) == 1
     with sqlite3.connect(backups[0]) as conn:

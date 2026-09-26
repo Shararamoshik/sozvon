@@ -119,7 +119,7 @@ def main():
         base = f'{url.scheme}://{url.netloc}'
         with httpx.Client(base_url=base, trust_env=False, timeout=70) as client, synthetic_api() as (api_url, observed):
             health = checked(client.get('/api/health'))
-            assert health['version'] == '0.2.1'
+            assert health['version'] == '0.2.2'
             assert client.get('/api/meetings').status_code == 401
             session = checked(client.post('/api/session', headers={'Origin': base},
                                           json={'key': parse_qs(url.fragment)['key'][0]}))
