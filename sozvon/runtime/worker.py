@@ -40,6 +40,14 @@ def _dispatch(operation, payload, stop_event, emit):
         from sozvon.llm.provider import generate
 
         return generate(payload, stop_event, emit)
+    if operation == "transcribe_cloud":
+        from sozvon.audio.cloud_stt import transcribe_cloud
+
+        return transcribe_cloud(payload, stop_event, emit)
+    if operation == "render_export":
+        from sozvon.export.worker import render_export
+
+        return render_export(payload, stop_event, emit)
     from sozvon.audio.operations import run
 
     return run(operation, payload, stop_event, emit)
@@ -90,7 +98,7 @@ def _serve(source, channel) -> int:
         # Windows NumPy initialisation can deadlock against a thread blocked on
         # the inherited CRT stdin pipe. Load its native runtime before starting
         # that reader; the host still enforces the startup deadline.
-        if os.name == "nt" and operation in {"audio_info", "transcribe", "record"}:
+        if os.name == "nt" and operation in {"audio_info", "transcribe", "transcribe_cloud", "record"}:
             import numpy  # noqa: F401
         # Ping is a one-shot diagnostic, valid even with stdin already at EOF.
         if operation != "ping":

@@ -1,6 +1,9 @@
 """Shared public runtime error and the fixed operation allowlist."""
 
-OPERATIONS = frozenset({"ping", "devices", "audio_info", "transcribe", "record", "report"})
+OPERATIONS = frozenset({
+    "ping", "devices", "audio_info", "transcribe", "record", "report",
+    "transcribe_cloud", "render_export",
+})
 
 
 class WorkerError(RuntimeError):
