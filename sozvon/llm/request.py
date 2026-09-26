@@ -5,6 +5,9 @@ from typing import Literal
 
 from pydantic import ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from sozvon.templates.builtin import builtin_spec
+from sozvon.templates.schema import TemplateSpec
+
 from .schema import SegmentId, StrictModel, Text
 
 # UTF-8 bytes of the entire user context (title/template/language/segments JSON).
@@ -26,7 +29,8 @@ class Request(StrictModel):
     timeout: float = Field(default=120, gt=0, le=600, allow_inf_nan=False)
     segments: list[Segment] = Field(min_length=1)
     title: str = ""
-    template: Literal["meeting", "client", "technical"] = "meeting"
+    template: str = Field(default="meeting", min_length=1, max_length=64)
+    template_snapshot: dict | None = None
     language: Text = "ru"
 
     @field_validator("api_key")
@@ -47,10 +51,26 @@ class Request(StrictModel):
 def prepare_request(payload: dict) -> tuple[Request, str]:
     try:
         request = Request.model_validate(payload)
+        if request.template_snapshot is None:
+            spec_data = builtin_spec(request.template).model_dump()
+            if "language" in request.model_fields_set:
+                spec_data["language"] = request.language
+            request.template_snapshot = {"id": request.template, "revision": 1,
+                                         "spec": spec_data}
+        if request.template_snapshot is not None:
+            snapshot = request.template_snapshot
+            if (set(snapshot) != {"id", "revision", "spec"}
+                    or snapshot["id"] != request.template
+                    or type(snapshot["revision"]) is not int or snapshot["revision"] < 1):
+                raise ValueError("Некорректный снимок шаблона")
+            spec = TemplateSpec.model_validate(snapshot["spec"])
+            request.template_snapshot = {**snapshot, "spec": spec.model_dump()}
+            request.language = spec.language
         context = json.dumps(
             {
                 "title": request.title,
                 "template": request.template,
+                "template_snapshot": request.template_snapshot,
                 "language": request.language,
                 "segments": [segment.model_dump() for segment in request.segments],
             },
@@ -59,7 +79,7 @@ def prepare_request(payload: dict) -> tuple[Request, str]:
             separators=(",", ":"),
         )
         size = len(context.encode("utf-8"))
-    except (ValidationError, TypeError, ValueError, OverflowError):
+    except (ValidationError, TypeError, ValueError, OverflowError, KeyError):
         raise ValueError(
             "Некорректные параметры отчёта: проверьте модель, протокол, API-ключ, таймаут "
             "(0 < секунд ≤ 600) и непустые сегменты с уникальными id."

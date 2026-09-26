@@ -8,6 +8,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from sozvon.storage.migrations import migrate
+from sozvon.templates.rendering import sections_for_report
+
 
 def now() -> str:
     return datetime.now(UTC).isoformat()
@@ -45,8 +48,11 @@ class Repository:
         self.root.mkdir(parents=True, exist_ok=True)
         self.path = self.root / "sozvon.db"
         with self.connection() as conn:
+            if conn.execute("PRAGMA user_version").fetchone()[0] > 1:
+                raise ValueError("База создана более новой версией приложения")
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(SCHEMA)
+            migrate(conn, self.root)
 
     @contextmanager
     def connection(self):
@@ -76,10 +82,8 @@ class Repository:
         with self.connection() as conn:
             conn.execute("INSERT INTO meetings(id,title,created_at,kind) VALUES(?,?,?,?)",
                          (mid, title.strip()[:200] or "Текст созвона", now(), "text"))
-            conn.executemany(
-                "INSERT INTO segments VALUES(?,?,?,?,?,?,?,?)",
-                [(uid(), mid, 1, i, None, None, None, value) for i, value in enumerate(parts)],
-            )
+            from sozvon.storage.transcripts import insert_revision
+            insert_revision(conn, mid, 0, [{"text": value} for value in parts], "import", {})
         return mid
 
     def list(self) -> list[dict]:
@@ -93,6 +97,7 @@ class Repository:
 
     def detail(self, mid: str) -> dict:
         with self.connection() as conn:
+            conn.execute("BEGIN")
             row = conn.execute("SELECT * FROM meetings WHERE id=?", (mid,)).fetchone()
             if row is None:
                 raise KeyError(mid)
@@ -103,6 +108,7 @@ class Repository:
             result["segments"] = [dict(s) for s in conn.execute(
                 "SELECT * FROM segments WHERE meeting_id=? AND revision=? ORDER BY ordinal",
                 (mid, revision))]
+            result["transcript_history"] = self._history(conn, mid)
             result["reports"] = []
             for report in conn.execute("SELECT * FROM reports WHERE meeting_id=? ORDER BY created_at DESC",
                                        (mid,)):
@@ -110,6 +116,7 @@ class Repository:
                 item["document"] = json.loads(item["document"])
                 item["meta"] = json.loads(item["meta"])
                 item["stale"] = item["transcript_revision"] != revision
+                item["sections"] = sections_for_report(item)
                 result["reports"].append(item)
             result["sources"] = [dict(s) for s in conn.execute(
                 "SELECT id,name,kind FROM sources WHERE meeting_id=?", (mid,))]
@@ -117,15 +124,19 @@ class Repository:
                 source["url"] = f"/api/sources/{source['id']}"
             return result
 
+    @staticmethod
+    def _history(conn, mid: str) -> list[dict]:
+        rows = conn.execute("SELECT * FROM segments WHERE meeting_id=? ORDER BY revision,ordinal", (mid,))
+        history = {}
+        for row in rows:
+            item = dict(row)
+            history.setdefault(item["revision"], []).append(item)
+        return [{"revision": revision, "segments": segments}
+                for revision, segments in history.items()]
+
     def transcript_history(self, mid: str) -> list[dict]:
         with self.connection() as conn:
-            rows = conn.execute("SELECT * FROM segments WHERE meeting_id=? ORDER BY revision,ordinal", (mid,))
-            history = {}
-            for row in rows:
-                item = dict(row)
-                history.setdefault(item["revision"], []).append(item)
-            return [{"revision": revision, "segments": segments}
-                    for revision, segments in history.items()]
+            return self._history(conn, mid)
 
     def status(self, mid: str, status: str, error: str | None = None):
         with self.connection() as conn:
@@ -140,14 +151,11 @@ class Repository:
     def save_segments(self, mid: str, segments: list[dict]):
         if not segments:
             raise ValueError("Речь не обнаружена")
+        from sozvon.storage.transcripts import current_revision, insert_revision
         with self.connection() as conn:
-            revision = conn.execute("SELECT COALESCE(MAX(revision),0)+1 FROM segments WHERE meeting_id=?",
-                                    (mid,)).fetchone()[0]
-            conn.executemany("INSERT INTO segments VALUES(?,?,?,?,?,?,?,?)", [
-                (uid(), mid, revision, i, s.get("start_ms"), s.get("end_ms"),
-                 s.get("speaker"), s["text"]) for i, s in enumerate(segments)
-            ])
-            conn.execute("UPDATE meetings SET status='ready',error=NULL WHERE id=?", (mid,))
+            conn.execute("BEGIN IMMEDIATE")
+            base = current_revision(conn, mid)
+            insert_revision(conn, mid, base, segments, "local_stt", {})
 
     def save_report(self, mid: str, result: dict, *, transcript_revision: int | None = None):
         with self.connection() as conn:

@@ -90,6 +90,10 @@ def test_openai_generates_structured_report_in_one_post(mock_http):
     events = []
     result = generate(payload(), Event(), events.append)
 
+    snapshot = result.pop("template_snapshot")
+    assert snapshot["id"] == "meeting" and snapshot["revision"] == 1
+    assert snapshot["spec"]["name"] == "Рабочая встреча"
+    assert len(snapshot["spec"]["sections"]) == 6
     assert result == {
         "document": document(),
         "model": "test-model",

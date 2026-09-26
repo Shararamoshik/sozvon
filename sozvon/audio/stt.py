@@ -1,7 +1,6 @@
 """Offline-only faster-whisper inference; import does not load the model."""
 
 import inspect
-import json
 import math
 import os
 import re
@@ -10,9 +9,8 @@ from uuid import uuid4
 from .mix import prepared_audio
 from .paths import local_path
 from .probe import check_cancelled
-
-MAX_SEGMENTS_BYTES = 900 * 1024
-MAX_RESULT_BYTES = 1024 * 1024 - 1
+from .result_limits import MAX_RESULT_BYTES, MAX_SEGMENTS_BYTES
+from .result_limits import json_size as _json_size
 
 
 class TranscriptLimitError(ValueError):
@@ -23,14 +21,6 @@ def _size_error():
     return TranscriptLimitError(
         "Расшифровка превышает предел: сегменты 900 КиБ, полный результат менее 1 МиБ. "
         "Разделите запись на части и распознайте отдельно; текст не обрезан."
-    )
-
-
-def _json_size(value):
-    return len(
-        json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode(
-            "utf-8"
-        )
     )
 
 
