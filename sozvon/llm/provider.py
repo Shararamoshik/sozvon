@@ -15,7 +15,6 @@ __all__ = ["MAX_INPUT_BYTES", "MAX_RESPONSE_BYTES", "generate"]
 
 # Bounded below the runtime IPC frame; no body/JSON repair requests.
 MAX_RESPONSE_BYTES = 512_000
-MAX_OUTPUT_TOKENS = 4096
 
 SYSTEM_PROMPT = """Составь структурированный отчёт по расшифровке на языке language.
 Верни только JSON, без Markdown, ограждений кода и пояснений, по схеме ниже.
@@ -51,7 +50,7 @@ def generate(payload, stop_event, emit) -> dict:
     body = {
         "model": request.model,
         "stream": False,
-        "max_tokens": MAX_OUTPUT_TOKENS,
+        "max_tokens": request.max_output_tokens,
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -64,7 +63,7 @@ def generate(payload, stop_event, emit) -> dict:
             "model": request.model,
             "stream": False,
             "system": SYSTEM_PROMPT,
-            "max_tokens": MAX_OUTPUT_TOKENS,
+            "max_tokens": request.max_output_tokens,
             "messages": [{"role": "user", "content": context}],
         }
         headers = {"anthropic-version": "2023-06-01"}
@@ -91,7 +90,7 @@ def generate(payload, stop_event, emit) -> dict:
         raise RuntimeError("Не удалось получить ответ API. Проверьте подключение.") from None
     _check_cancelled(stop_event)
     data = parse_json(content)
-    text = report_text(data, request.protocol)
+    text = report_text(data, request.protocol, max_output_tokens=request.max_output_tokens)
     document = validate_document(
         parse_json(text), [segment.model_dump() for segment in request.segments],
         template_spec=TemplateSpec.model_validate(request.template_snapshot["spec"]),

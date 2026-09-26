@@ -47,7 +47,22 @@ DOCX/PDF и единый экспорт. Встроенные шаблоны к�
 
 `sozvon.llm.provider.generate(payload,stop_event,emit)->dict`.
 
-payload `{base_url,protocol:'openai'|'anthropic',model,api_key:'',timeout:120,segments:[...],title,template:'meeting'|'client'|'technical',language:'ru'}`.
+payload `{base_url,protocol:'openai'|'anthropic',model,api_key:'',timeout:300,max_output_tokens:16384,segments:[...],title,template:'meeting'|'client'|'technical',language:'ru'}`.
+
+Настройки `llm.max_output_tokens`: строгое целое 256–65536, по умолчанию 16384;
+`llm.timeout_s`: строгое целое 10–600, по умолчанию 300. Они входят в атомарный
+снимок настроек/ключа и снимок задания. В payload таймаут называется `timeout`,
+в обоих сетевых протоколах бюджет передаётся как `max_tokens`; дедлайн worker —
+`timeout_s + 15`. Старые TOML без полей получают значения по умолчанию без изменения
+ключей и данных. Один запуск — один POST, без автоматической смены модели/повторов.
+Причины `length`/`max_tokens`, фильтрация (`content_filter`), отказ модели и неизвестное
+завершение различаются безопасными статическими сообщениями до разбора документа.
+Сообщение о лимите добавляет только собственный запрошенный бюджет и числовые счётчики
+из allowlist (включая reasoning_tokens); raw-значение причины, отказ, рассуждения и текст
+ответа не отражаются, неизвестная причина не эхоится. Длина сообщения ограничена 500
+символами. Незавершённый ответ даже с валидным JSON не заменяет прежний отчёт.
+Интерфейс «Настройки → Отчёт» содержит поля лимита и таймаута с теми же границами;
+сохранение проверяется чтением назад.
 
 Base URL включает версию для OpenAI (`http://127.0.0.1:1234/v1`); Anthropic база без /v1/messages. Не делать запросы на проверку endpoint автоматически. httpx trust_env=false, follow_redirects=false; HTTPS для удалённых, HTTP только loopback.
 

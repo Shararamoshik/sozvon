@@ -8,7 +8,7 @@ export function createSettings({ changed, reportError }) {
   let saving = false;
   let devicesLoading = false;
   const form = $('settings-form');
-  const fieldIds = ['stt-engine', 'stt-cloud-base', 'stt-cloud-model', 'stt-cloud-format', 'stt-cloud-timeout', 'stt-cloud-limit', 'llm-base', 'llm-protocol', 'llm-model', 'report-template', 'stt-path', 'stt-device', 'stt-language', 'input-device', 'output-device'];
+  const fieldIds = ['stt-engine', 'stt-cloud-base', 'stt-cloud-model', 'stt-cloud-format', 'stt-cloud-timeout', 'stt-cloud-limit', 'llm-base', 'llm-protocol', 'llm-model', 'llm-max-output-tokens', 'llm-timeout', 'report-template', 'stt-path', 'stt-device', 'stt-language', 'input-device', 'output-device'];
 
   function updateStatus(text) {
     $('settings-status').textContent = text;
@@ -58,6 +58,8 @@ export function createSettings({ changed, reportError }) {
     $('llm-base').value = data.llm?.base_url || '';
     $('llm-protocol').value = data.llm?.protocol || 'openai';
     $('llm-model').value = data.llm?.model || '';
+    $('llm-max-output-tokens').value = data.llm?.max_output_tokens ?? 16384;
+    $('llm-timeout').value = data.llm?.timeout_s ?? 300;
     $('allow-remote').checked = Boolean(data.llm?.allow_remote);
     keepOption('report-template', data.template || 'meeting');
     $('stt-path').value = data.stt?.model_path || '';
@@ -109,6 +111,7 @@ export function createSettings({ changed, reportError }) {
     const llm = {
       base_url: $('llm-base').value.trim(), protocol: $('llm-protocol').value,
       model: $('llm-model').value.trim(), allow_remote: $('allow-remote').checked,
+      max_output_tokens: Number($('llm-max-output-tokens').value), timeout_s: Number($('llm-timeout').value),
     };
     const cloud = $('stt-engine').value === 'cloud' ? {
       base_url: $('stt-cloud-base').value.trim(), model: $('stt-cloud-model').value.trim(),
@@ -128,7 +131,7 @@ export function createSettings({ changed, reportError }) {
     };
   }
   function verifySettings(candidate, current) {
-    for (const [group, keys] of [['llm', ['base_url', 'protocol', 'model', 'allow_remote']], ['stt', ['model_path', 'device', 'language']], ['recording', ['input_device', 'output_device']]]) {
+    for (const [group, keys] of [['llm', ['base_url', 'protocol', 'model', 'allow_remote', 'max_output_tokens', 'timeout_s']], ['stt', ['model_path', 'device', 'language']], ['recording', ['input_device', 'output_device']]]) {
       for (const key of keys) {
         const expected = candidate[group][key];
         const actual = current[group]?.[key];

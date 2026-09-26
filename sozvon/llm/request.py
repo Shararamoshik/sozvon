@@ -26,7 +26,8 @@ class Request(StrictModel):
     protocol: Literal["openai", "anthropic"]
     model: Text
     api_key: str = Field(default="", max_length=8192, repr=False, exclude=True)
-    timeout: float = Field(default=120, gt=0, le=600, allow_inf_nan=False)
+    timeout: float = Field(default=300, gt=0, le=600, allow_inf_nan=False)
+    max_output_tokens: int = Field(default=16384, ge=256, le=65536, strict=True)
     segments: list[Segment] = Field(min_length=1)
     title: str = ""
     template: str = Field(default="meeting", min_length=1, max_length=64)
@@ -82,7 +83,7 @@ def prepare_request(payload: dict) -> tuple[Request, str]:
     except (ValidationError, TypeError, ValueError, OverflowError, KeyError):
         raise ValueError(
             "Некорректные параметры отчёта: проверьте модель, протокол, API-ключ, таймаут "
-            "(0 < секунд ≤ 600) и непустые сегменты с уникальными id."
+            "(0 < секунд ≤ 600), лимит ответа (256–65536 токенов) и непустые сегменты с уникальными id."
         ) from None
     if size > MAX_INPUT_BYTES:
         raise ValueError(

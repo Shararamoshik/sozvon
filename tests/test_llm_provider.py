@@ -313,7 +313,7 @@ def test_default_options_and_optional_usage(mock_http):
     result = generate(data, Event(), lambda event: None)
     assert result["usage"] is None
     assert len(calls) == 1
-    assert configurations[0]["timeout"] == 120
+    assert configurations[0]["timeout"] == 300
 
 
 def test_stop_before_request_never_sends(mock_http):
@@ -506,7 +506,7 @@ def test_output_token_budget_is_explicit_for_openai(mock_http):
 
     calls, _ = mock_http(lambda request: httpx.Response(200, json=openai_response()))
     generate(payload(), Event(), lambda event: None)
-    assert json.loads(calls[0].content)["max_tokens"] == 4096
+    assert json.loads(calls[0].content)["max_tokens"] == 16384
 
 
 def test_quoted_key_cannot_leak_via_document(mock_http):

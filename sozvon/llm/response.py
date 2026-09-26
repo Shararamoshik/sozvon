@@ -2,6 +2,9 @@
 
 import json
 
+MAX_COUNTER = 2**63 - 1
+MAX_MESSAGE = 500
+
 
 def _unique_object(pairs):
     result = {}
@@ -26,13 +29,55 @@ def parse_json(text: str | bytes | bytearray) -> dict:
         raise RuntimeError("API вернул некорректный JSON; отчёт не сохранён.") from None
 
 
-def report_text(data: dict, protocol: str) -> str:
+def _counter(value):
+    if type(value) is int and 0 <= value <= MAX_COUNTER:
+        return value
+    return None
+
+
+def _budget(max_output_tokens) -> str:
+    """Только собственный бюджет запроса; это не ответ провайдера."""
+    if type(max_output_tokens) is not int or not 0 < max_output_tokens <= 65536:
+        return ""
+    return f" Запрошенный лимит: {max_output_tokens} токенов."
+
+
+def _spent(usage) -> str:
+    """Числовые счётчики из allowlist: ни текста, ни неизвестных полей."""
+    if not isinstance(usage, dict):
+        return ""
+    total = usage.get("completion_tokens", usage.get("output_tokens"))
+    reasoning = usage.get("reasoning_tokens")
+    if total is None:
+        return ""
+    text = f" Израсходовано {total} токенов"
+    if reasoning is not None:
+        text += f", из них на рассуждения {reasoning}"
+    return text + "."
+
+
+def _limit_error(label: str, data: dict, max_output_tokens) -> RuntimeError:
+    message = f"Модель исчерпала лимит ответа ({label})." + _budget(max_output_tokens)
+    message += _spent(safe_usage(data.get("usage")))
+    message += " Отчёт не сохранён. Автоматического повтора не было."
+    return RuntimeError(message[:MAX_MESSAGE])
+
+
+def report_text(data: dict, protocol: str, *, max_output_tokens: int | None = None) -> str:
     try:
         if data.get("error"):
             raise ValueError
         if protocol == "openai":
             choice = data["choices"][0]
-            if choice.get("finish_reason") not in (None, "stop"):
+            reason = choice.get("finish_reason")
+            if reason == "length":
+                raise _limit_error("finish_reason=length", data, max_output_tokens)
+            if reason == "content_filter":
+                raise RuntimeError(
+                    "Провайдер отфильтровал ответ по своим правилам "
+                    "(finish_reason=content_filter); отчёт не сохранён. Повтора не было."
+                )
+            if reason not in (None, "stop"):
                 raise RuntimeError(
                     "Модель не завершила отчёт или отклонила ответ. Повтора не было."
                 )
@@ -41,7 +86,12 @@ def report_text(data: dict, protocol: str) -> str:
                 raise RuntimeError("Модель отказалась вернуть отчёт. Повтора запроса не было.")
             text = message["content"]
         else:
-            if data.get("stop_reason") not in (None, "end_turn", "stop_sequence"):
+            reason = data.get("stop_reason")
+            if reason == "max_tokens":
+                raise _limit_error("stop_reason=max_tokens", data, max_output_tokens)
+            if reason == "refusal":
+                raise RuntimeError("Модель отказалась вернуть отчёт. Повтора запроса не было.")
+            if reason not in (None, "end_turn", "stop_sequence"):
                 raise RuntimeError(
                     "Модель не завершила отчёт или отклонила ответ. Повтора не было."
                 )
@@ -70,11 +120,18 @@ def safe_usage(value: object) -> dict | None:
         "cache_creation_input_tokens",
         "cache_read_input_tokens",
     )
-    result = {
-        key: value[key]
-        for key in fields
-        if key in value and type(value[key]) is int and value[key] >= 0
-    }
+    result = {}
+    for key in fields:
+        number = _counter(value.get(key))
+        if number is not None:
+            result[key] = number
+    reasoning = _counter(value.get("reasoning_tokens"))
+    for key in ("completion_tokens_details", "output_tokens_details"):
+        details = value.get(key)
+        if reasoning is None and isinstance(details, dict):
+            reasoning = _counter(details.get("reasoning_tokens"))
+    if reasoning is not None:
+        result["reasoning_tokens"] = reasoning
     return result or None
 
 

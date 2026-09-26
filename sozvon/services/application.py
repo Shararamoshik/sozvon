@@ -167,10 +167,11 @@ class Application:
         if remote and not secret:
             raise ValueError("Сохраните API-ключ в настройках отчёта")
         payload = {"base_url": llm["base_url"], "protocol": llm["protocol"], "model": llm["model"],
-                   "api_key": secret, "timeout": 120, "segments": detail["segments"],
+                   "api_key": secret, "timeout": llm["timeout_s"],
+                   "max_output_tokens": llm["max_output_tokens"], "segments": detail["segments"],
                    "title": detail["title"], "template": template["id"],
                    "template_snapshot": snapshot, "language": snapshot["spec"]["language"]}
-        return self._submit(mid, "report", payload, 135,
+        return self._submit(mid, "report", payload, llm["timeout_s"] + 15,
                             transcript_revision=detail["transcript_revision"])
 
     def transcribe(self, mid: str, request: TranscribeInput | None = None) -> str:

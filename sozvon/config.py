@@ -26,6 +26,8 @@ class Llm(Section):
     protocol: Literal["openai", "anthropic"] = "openai"
     model: str = ""
     allow_remote: bool = False
+    max_output_tokens: int = Field(default=16384, ge=256, le=65536, strict=True)
+    timeout_s: int = Field(default=300, ge=10, le=600, strict=True)
 
     @field_validator("base_url")
     @classmethod

@@ -81,6 +81,8 @@
             <section id="settings-llm" role="tabpanel" aria-labelledby="settings-tab-llm" class="settings-section">
               <h2>Модель для отчёта</h2><p class="section-description">Совместимый API, локальный или удалённый. Соединение используется только по команде «Создать отчёт».</p>
               <div class="field-row"><label>Протокол<select id="llm-protocol"><option value="openai">OpenAI-совместимый</option><option value="anthropic">Anthropic</option></select></label><label>Шаблон отчёта<select id="report-template"></select></label></div>
+              <div class="field-row"><label>Лимит вывода, токенов<input id="llm-max-output-tokens" type="number" min="256" max="65536" step="1" required></label><label>Таймаут запроса, с<input id="llm-timeout" type="number" min="10" max="600" step="1" required></label></div>
+              <p id="llm-budget-hint" class="field-help">Бюджет включает рассуждения модели и итоговый ответ. Значение выше лимита провайдера не действует; рост лимита может увеличить стоимость. Один запрос на запуск, без автоматических повторов.</p>
               <button type="button" id="open-templates" class="button quiet">Открыть шаблоны</button>
               <label>Адрес API<input id="llm-base" type="url" placeholder="http://127.0.0.1:1234/v1" spellcheck="false" autocomplete="off"><span id="base-hint" class="field-help">Для OpenAI укажите базовый URL с /v1.</span></label>
               <label>Название модели<input id="llm-model" type="text" placeholder="Идентификатор модели у провайдера" spellcheck="false" autocomplete="off"></label>

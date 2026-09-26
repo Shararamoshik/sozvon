@@ -40,7 +40,10 @@ def checked(response, status=200):
 def exercise(client, headers, api_url, folder):
     checked(client.put('/api/settings', headers=headers, json={
         'stt': {'engine': 'cloud', 'cloud': {'base_url': api_url, 'model': 'synthetic-stt'}},
-        'llm': {'base_url': api_url, 'model': 'synthetic-report'}}))
+        'llm': {'base_url': api_url, 'model': 'synthetic-report',
+                'max_output_tokens': 24576, 'timeout_s': 450}}))
+    llm = checked(client.get('/api/settings'))['llm']
+    assert llm['max_output_tokens'] == 24576 and llm['timeout_s'] == 450
     buffer = io.BytesIO()
     with wave.open(buffer, 'wb') as audio:
         audio.setparams((1, 2, 16000, 0, 'NONE', ''))
@@ -116,7 +119,7 @@ def main():
         base = f'{url.scheme}://{url.netloc}'
         with httpx.Client(base_url=base, trust_env=False, timeout=70) as client, synthetic_api() as (api_url, observed):
             health = checked(client.get('/api/health'))
-            assert health['version'] == '0.2.0'
+            assert health['version'] == '0.2.1'
             assert client.get('/api/meetings').status_code == 401
             session = checked(client.post('/api/session', headers={'Origin': base},
                                           json={'key': parse_qs(url.fragment)['key'][0]}))
