@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="referrer" content="no-referrer">
+  <title>Созвон — рабочая библиотека</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script type="module" src="/static/js/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">К содержимому</a>
+  <aside class="rail" aria-label="Основная навигация">
+    <a class="brand" href="#library" aria-label="Созвон — записи"><span class="brand-mark" aria-hidden="true">с.</span>созвон</a>
+    <button type="button" id="new-recording" class="button primary rail-new" disabled><span aria-hidden="true">+</span> Новая запись</button>
+    <nav class="nav-list">
+      <button type="button" data-view="library" class="nav-item active" aria-current="page"><span aria-hidden="true">▤</span> Записи <span id="library-count" class="nav-count"></span></button>
+      <button type="button" data-view="settings" class="nav-item"><span aria-hidden="true">⚙</span> Настройки</button>
+      <button type="button" data-view="about" class="nav-item"><span class="nav-info" aria-hidden="true">i</span> О приложении</button>
+    </nav>
+    <div class="rail-footer"><span class="local-dot" aria-hidden="true"></span> На этом устройстве<span class="version">Созвон {{ version }}</span></div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar"><span id="breadcrumb">Рабочая библиотека</span><span class="build-badge">Техническая версия</span></header>
+    <main id="main" tabindex="-1">
+      <div id="global-error" class="notice error" role="alert" hidden></div>
+      <div id="session-status" class="notice" role="status">Подключение к приложению…</div>
+      <section id="job-banner" class="job-banner" aria-label="Текущая обработка" hidden>
+        <div class="job-copy"><strong id="job-stage"></strong><span id="job-progress" class="muted"></span></div>
+        <progress id="job-meter" aria-label="Ход обработки"></progress>
+        <button type="button" id="stop-job" class="button small">Остановить</button>
+      </section>
+      <section id="library-view" aria-labelledby="library-heading">
+        <div class="page-heading"><div><p class="eyebrow">ВАШИ РАБОЧИЕ МАТЕРИАЛЫ</p><h1 id="library-heading">Записи</h1></div><button type="button" id="refresh-library" class="button quiet" disabled>Обновить</button></div>
+        <div class="library-toolbar"><label class="search-field"><span aria-hidden="true">⌕</span><span class="sr-only">Поиск по названию</span><input id="meeting-search" type="search" placeholder="Найти запись…" autocomplete="off"></label><span id="list-caption" class="muted" aria-live="polite"></span></div>
+        <div class="list-head" aria-hidden="true"><span>Название</span><span>Состояние</span><span>Добавлено</span></div>
+        <div id="meeting-list" class="meeting-list" aria-live="polite"><p class="muted list-placeholder">Загрузка библиотеки…</p></div>
+      </section>
+      <section id="meeting-view" aria-labelledby="meeting-title" hidden>
+        <button type="button" id="back-to-library" class="back-link">← Все записи</button>
+        <div class="page-heading detail-heading"><div><p id="meeting-meta" class="eyebrow"></p><h1 id="meeting-title"></h1></div><div class="export-actions"><a id="export-md" class="button quiet" download>Markdown ↓</a><a id="export-json" class="button quiet" download>JSON ↓</a></div></div>
+        <div id="meeting-error" class="notice error" role="alert" hidden></div>
+        <div class="detail-actions"><button type="button" id="transcribe-button" class="button" hidden>Распознать аудио</button><button type="button" id="report-button" class="button primary">Создать отчёт</button><span id="action-reason" class="muted"></span></div>
+        <div class="tabs detail-tabs" role="tablist" aria-label="Материалы записи">
+          <button type="button" role="tab" id="tab-report" data-detail-tab="report" aria-controls="panel-report" aria-selected="true">Отчёт</button>
+          <button type="button" role="tab" id="tab-transcript" data-detail-tab="transcript" aria-controls="panel-transcript" aria-selected="false" tabindex="-1">Расшифровка</button>
+          <button type="button" role="tab" id="tab-notes" data-detail-tab="notes" aria-controls="panel-notes" aria-selected="false" tabindex="-1">Заметки</button>
+          <button type="button" role="tab" id="tab-sources" data-detail-tab="sources" aria-controls="panel-sources" aria-selected="false" tabindex="-1">Источники</button>
+        </div>
+        <section id="panel-report" role="tabpanel" aria-labelledby="tab-report" tabindex="0"><div id="report-content" class="report-sheet"></div></section>
+        <section id="panel-transcript" role="tabpanel" aria-labelledby="tab-transcript" tabindex="0" hidden><div id="transcript-content" class="transcript"></div></section>
+        <section id="panel-notes" role="tabpanel" aria-labelledby="tab-notes" hidden><form id="notes-form" class="notes-form"><label for="meeting-notes">Ваши заметки</label><textarea id="meeting-notes" maxlength="100000" rows="14" placeholder="Контекст встречи, мысли и следующие шаги…"></textarea><div class="form-footer"><span id="notes-status" class="muted" role="status">Заметки сохраняются отдельно от отчёта.</span><button type="submit" id="save-notes" class="button primary" disabled>Сохранить заметки</button></div></form></section>
+        <section id="panel-sources" role="tabpanel" aria-labelledby="tab-sources" tabindex="0" hidden><div id="sources-content" class="sources-list"></div></section>
+      </section>
+      <section id="settings-view" aria-labelledby="settings-heading" hidden>
+        <div class="page-heading"><div><p class="eyebrow">ПОД ВАШ РАБОЧИЙ ПРОЦЕСС</p><h1 id="settings-heading">Настройки</h1></div></div>
+        <div id="settings-error" class="notice error" role="alert" hidden></div>
+        <form id="settings-form" class="settings-form">
+          <div class="tabs" role="tablist" aria-label="Категории настроек">
+            <button type="button" role="tab" id="settings-tab-llm" data-settings-tab="llm" aria-controls="settings-llm" aria-selected="true">Отчёт</button>
+            <button type="button" role="tab" id="settings-tab-stt" data-settings-tab="stt" aria-controls="settings-stt" aria-selected="false" tabindex="-1">Распознавание</button>
+            <button type="button" role="tab" id="settings-tab-recording" data-settings-tab="recording" aria-controls="settings-recording" aria-selected="false" tabindex="-1">Запись</button>
+          </div>
+          <fieldset id="settings-fields" disabled>
+            <section id="settings-llm" role="tabpanel" aria-labelledby="settings-tab-llm" class="settings-section">
+              <h2>Модель для отчёта</h2><p class="section-description">Совместимый API, локальный или удалённый. Соединение используется только по команде «Создать отчёт».</p>
+              <div class="field-row"><label>Протокол<select id="llm-protocol"><option value="openai">OpenAI-совместимый</option><option value="anthropic">Anthropic</option></select></label><label>Шаблон отчёта<select id="report-template"><option value="meeting">Рабочая встреча</option><option value="client">Встреча с клиентом</option><option value="technical">Техническое обсуждение</option></select></label></div>
+              <label>Адрес API<input id="llm-base" type="url" placeholder="http://127.0.0.1:1234/v1" spellcheck="false" autocomplete="off"><span id="base-hint" class="field-help">Для OpenAI укажите базовый URL с /v1.</span></label>
+              <label>Название модели<input id="llm-model" type="text" placeholder="Идентификатор модели у провайдера" spellcheck="false" autocomplete="off"></label>
+              <label>API-ключ <span id="key-state" class="field-help"></span><input id="llm-key" type="password" placeholder="Оставьте пустым, чтобы не менять" autocomplete="new-password" spellcheck="false"></label>
+              <label class="checkbox-label"><input id="delete-key" type="checkbox"> Удалить сохранённый ключ при сохранении</label>
+              <label class="checkbox-label permission"><input id="allow-remote" type="checkbox"><span>Разрешить отправку расшифровки удалённому провайдеру<span class="field-help">Для удалённого адреса требуется HTTPS. Без разрешения доступен только локальный API.</span></span></label>
+              <p class="budget-note">Один запуск — один запрос к модели. Удалённый провайдер может списать средства; длинные расшифровки пока ограничены.</p>
+            </section>
+            <section id="settings-stt" role="tabpanel" aria-labelledby="settings-tab-stt" class="settings-section" hidden>
+              <h2>Распознавание речи</h2><p class="section-description">Распознавание работает на устройстве. Модель нужно подготовить отдельно — приложение не скачивает её автоматически. В технической версии распознаются записи до 30 минут.</p>
+              <label>Локальный каталог модели<input id="stt-path" type="text" placeholder="Полный путь к каталогу faster-whisper" spellcheck="false" autocomplete="off"></label>
+              <div class="field-row"><label>Вычисления<select id="stt-device"><option value="cpu">Процессор · CPU</option><option value="auto">Автоматически · GPU → CPU</option><option value="cuda">Видеокарта · CUDA</option></select></label><label>Язык речи<select id="stt-language"><option value="auto">Определить автоматически</option><option value="ru">Русский</option><option value="en">Английский</option><option value="de">Немецкий</option><option value="fr">Французский</option><option value="es">Испанский</option><option value="uk">Украинский</option></select></label></div>
+            </section>
+            <section id="settings-recording" role="tabpanel" aria-labelledby="settings-tab-recording" class="settings-section" hidden>
+              <h2>Источники звука</h2><p class="section-description">Микрофон и системный звук сохраняются отдельными дорожками. Системный звук требует WASAPI в Windows.</p>
+              <label>Микрофон<select id="input-device"><option value="">Системное устройство по умолчанию</option></select></label><label>Системный звук<select id="output-device"><option value="">Системное устройство по умолчанию</option></select></label>
+              <div class="device-controls"><button type="button" id="refresh-devices" class="button">Найти устройства</button><span id="device-status" class="muted" role="status">Список ещё не запрошен.</span></div>
+            </section>
+          </fieldset>
+          <div class="form-footer settings-footer"><span id="settings-status" class="muted" role="status">Загрузка настроек…</span><button type="submit" id="save-settings" class="button primary" disabled>Сохранить настройки</button></div>
+        </form>
+      </section>
+      <section id="about-view" aria-labelledby="about-heading" hidden><div class="page-heading"><div><p class="eyebrow">О ПРИЛОЖЕНИИ</p><h1 id="about-heading">Сначала разговор.<br>Потом — ясность.</h1></div></div><div class="about-copy"><p>«Созвон» собирает записи встреч, расшифровки, отчёты и ваши заметки в одной рабочей библиотеке.</p><dl class="about-facts"><div><dt>Версия</dt><dd>{{ version }} · техническая версия</dd></div><div><dt>Данные</dt><dd id="data-directory">Каталог появится после подключения.</dd></div><div><dt>Приватность</dt><dd>Распознавание — локально. Для удалённого отчёта нужно ваше разрешение в настройках.</dd></div></dl><p class="muted">Этот прототип не обещает восстановление прерванной записи, разделение говорящих или готовые экспорты DOCX и SRT.</p></div></section>
+    </main>
+  </div>
+  <dialog id="new-dialog" aria-labelledby="new-heading">
+    <div class="dialog-heading"><div><p class="eyebrow">ДОБАВИТЬ В БИБЛИОТЕКУ</p><h2 id="new-heading">Новая запись</h2></div><button type="button" id="close-new" class="icon-button" aria-label="Закрыть новую запись">×</button></div>
+    <div class="tabs" role="tablist" aria-label="Способ добавления">
+      <button type="button" role="tab" id="new-tab-text" data-new-tab="text" aria-controls="new-text-panel" aria-selected="true">Текст</button><button type="button" role="tab" id="new-tab-audio" data-new-tab="audio" aria-controls="new-audio-panel" aria-selected="false" tabindex="-1">Аудиофайл</button><button type="button" role="tab" id="new-tab-record" data-new-tab="record" aria-controls="new-record-panel" aria-selected="false" tabindex="-1">Записать</button>
+    </div>
+    <div id="new-error" class="notice error" role="alert" hidden></div>
+    <section id="new-text-panel" role="tabpanel" aria-labelledby="new-tab-text"><form id="new-text-form"><label>Название<input id="new-title" type="text" required maxlength="200" placeholder="О чём говорили?" autocomplete="off"></label><label>Текст встречи<textarea id="new-text" rows="9" maxlength="500000" required placeholder="Вставьте расшифровку или текст разговора…"></textarea></label><div class="dialog-footer"><span class="muted">Сохранение не запускает модель.</span><button type="submit" class="button primary">Добавить текст</button></div></form></section>
+    <section id="new-audio-panel" role="tabpanel" aria-labelledby="new-tab-audio" hidden><form id="new-audio-form"><label class="file-field">Выберите аудиофайл<input id="audio-file" type="file" accept=".wav,.mp3,.m4a,.flac,.ogg" required><span class="field-help">WAV, MP3, M4A, FLAC или OGG · до 256 МБ.</span></label><p class="section-description">После загрузки запустите распознавание отдельно. Путь к локальной модели задаётся в настройках.</p><div class="dialog-footer"><span id="upload-status" class="muted" role="status"></span><button type="submit" class="button primary">Загрузить файл</button></div></form></section>
+    <section id="new-record-panel" role="tabpanel" aria-labelledby="new-tab-record" hidden><form id="record-form"><h3>Запись на этом устройстве</h3><p class="section-description">Приложение записывает звук компьютера, на котором запущено. После остановки дорожки появятся в источниках.</p><label>Предельная длительность<select id="record-seconds"><option value="1800">30 минут</option><option value="3600" selected>1 час</option><option value="7200">2 часа</option><option value="14400">4 часа</option></select></label><label class="checkbox-label"><input id="allow-partial" type="checkbox"><span>Разрешить запись только доступного источника<span class="field-help">По умолчанию для старта нужны и микрофон, и системный звук.</span></span></label><p id="record-availability" class="muted">Устройства выбираются в разделе «Настройки → Запись».</p><div class="dialog-footer"><button type="button" id="open-record-settings" class="button quiet">Настроить устройства</button><button type="submit" class="button primary">Начать запись</button></div></form></section>
+  </dialog>
+  <dialog id="leave-dialog" class="compact-dialog" aria-labelledby="leave-heading"><h2 id="leave-heading">Есть несохранённые изменения</h2><p>Остаться и сохранить их или перейти без сохранения?</p><div class="dialog-footer"><button type="button" id="stay-editing" class="button primary" autofocus>Остаться</button><button type="button" id="discard-editing" class="button">Не сохранять</button></div></dialog>
+</body>
+</html>
