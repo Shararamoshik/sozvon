@@ -85,8 +85,11 @@ def test_editor_and_import_modules_cover_the_explicit_api_contract():
     for value in ("/api/settings", "api_key", "delete_key", "allow_remote", "model_path", "/api/devices"):
         assert value in settings
     meeting = (js / "meeting.js").read_text(encoding="utf-8")
-    for value in ("/transcribe", "/report", "/notes", "format=md", "format=json", "segment_id", "quote"):
+    for value in ("/transcribe", "/report", "/notes", "segment_id", "quote"):
         assert value in meeting
+    export = (js / "export.js").read_text(encoding="utf-8")
+    for value in ("/export?", "URLSearchParams", "include_transcript", "include_quotes", "application/pdf", "wordprocessingml.document", "application/json", "response.ok"):
+        assert value in export
     imports = (js / "import.js").read_text(encoding="utf-8")
     for value in ("/api/import/text", "/api/import/audio", "/api/record/start", "max_seconds", "allow_partial"):
         assert value in imports

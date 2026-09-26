@@ -303,8 +303,15 @@ def test_worker_never_publishes_replaced_temporary_file(tmp_path, monkeypatch):
         path.symlink_to(outside)
 
     monkeypatch.setattr(docx, "render_docx", replace_after_render)
-    with pytest.raises(ValueError, match="измен|файл"):
-        render_export({"job_dir": str(tmp_path), "format": "docx"}, Event(), lambda event: None)
+    import os
+    if os.name == "nt":
+        # Windows denies unlink of the open file before the injected substitution.
+        with pytest.raises(PermissionError) as caught:
+            render_export({"job_dir": str(tmp_path), "format": "docx"}, Event(), lambda event: None)
+        assert caught.value.winerror == 32
+    else:
+        with pytest.raises(ValueError, match="измен|файл"):
+            render_export({"job_dir": str(tmp_path), "format": "docx"}, Event(), lambda event: None)
     assert target.read_bytes() == b"previous export"
     assert not target.is_symlink()
     assert outside.read_bytes() == b"outside export"

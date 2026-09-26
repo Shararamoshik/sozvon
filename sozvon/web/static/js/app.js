@@ -1,7 +1,9 @@
+import { isActiveJob as isActive } from './job-state.js';
 import { request, startSession, onUnauthorized } from './api.js';
 import { $, node, message, date, time, emptyState, activateTabs, wireTabs, bindDialog } from './dom.js';
 import { createSettings } from './settings.js';
 import { createMeeting } from './meeting.js';
+import { createTemplates } from './templates.js';
 import { createImport } from './import.js';
 
 const state = { ready: false, view: 'library', items: [], job: null, refreshing: false, revision: 0 };
@@ -12,8 +14,9 @@ const leaveDialog = bindDialog($('leave-dialog'));
 const settings = createSettings({ changed: () => meeting.refreshActions(), reportError });
 const meeting = createMeeting({
   getSettings: () => settings.value(), getJob: () => state.job,
-  reportError, refresh: () => refresh(), isReady: () => state.ready,
+  guard, reportError, refresh: () => refresh(), isReady: () => state.ready,
 });
+const templates = createTemplates({ guard, getDefault: () => settings.value()?.template });
 const importer = createImport({
   isReady: () => state.ready, getJob: () => state.job,
   openMeeting: id => openMeeting(id), refresh: () => refresh(),
@@ -22,12 +25,12 @@ const importer = createImport({
 
 function reportError(error) { message('global-error', error.message || String(error)); }
 
-function isActive(job) {
-  return Boolean(job && !['done', 'completed', 'succeeded', 'success', 'failed', 'error', 'cancelled', 'canceled', 'stopped', 'interrupted'].includes(job.status));
-}
 
 function guard(action) {
-  if ((state.view === 'meeting' && meeting.dirty()) || (state.view === 'settings' && settings.dirty())) {
+  if (meeting.busy() || templates.busy() || settings.busy()) {
+    message('global-error', 'Дождитесь завершения сохранения или запуска.'); return;
+  }
+  if ((state.view === 'templates' && templates.dirty()) || (state.view === 'meeting' && meeting.dirty()) || (state.view === 'settings' && settings.dirty())) {
     pendingNavigation = action;
     leaveDialog.open();
   } else action();
@@ -35,14 +38,14 @@ function guard(action) {
 
 function changeView(view) {
   state.view = view;
-  for (const name of ['library', 'meeting', 'settings', 'about']) $(name + '-view').hidden = name !== view;
+  for (const name of ['library', 'meeting', 'templates', 'settings', 'about']) $(name + '-view').hidden = name !== view;
   document.querySelectorAll('[data-view]').forEach(button => {
     const active = button.dataset.view === (view === 'meeting' ? 'library' : view);
     button.classList.toggle('active', active);
     if (active) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
   });
-  $('breadcrumb').textContent = { library: 'Рабочая библиотека', meeting: 'Библиотека / Запись', settings: 'Настройки приложения', about: 'О приложении' }[view];
+  $('breadcrumb').textContent = { library: 'Рабочая библиотека', meeting: 'Библиотека / Запись', templates: 'Шаблоны отчёта', settings: 'Настройки приложения', about: 'О приложении' }[view];
   $('main').focus({ preventScroll: true });
 }
 
@@ -50,7 +53,9 @@ function navigate(view, category) {
   guard(() => {
     state.revision += 1;
     changeView(view);
+    if (view === 'templates') templates.load();
     if (view === 'settings') {
+      if (state.ready) settings.loadTemplates();
       if (category) settings.tab(category);
       if (!settings.value() && state.ready) settings.load();
     }
@@ -159,6 +164,7 @@ async function refresh(explicit = false) {
 
 $('stay-editing').addEventListener('click', () => { pendingNavigation = null; leaveDialog.close(); });
 $('discard-editing').addEventListener('click', () => {
+  if (state.view === 'templates') templates.discard();
   if (state.view === 'settings') settings.discard();
   if (state.view === 'meeting') meeting.discard();
   const action = pendingNavigation;
@@ -168,6 +174,7 @@ $('discard-editing').addEventListener('click', () => {
 });
 document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.view)));
 document.querySelector('.brand').addEventListener('click', event => { event.preventDefault(); navigate('library'); });
+$('open-templates').addEventListener('click', () => navigate('templates'));
 $('back-to-library').addEventListener('click', () => navigate('library'));
 $('refresh-library').addEventListener('click', () => refresh(true));
 $('meeting-search').addEventListener('input', renderLibrary);
@@ -187,7 +194,7 @@ wireTabs('data-detail-tab', value => meeting.tab(value));
 wireTabs('data-settings-tab', value => settings.tab(value));
 wireTabs('data-new-tab', value => activateTabs('data-new-tab', value));
 window.addEventListener('beforeunload', event => {
-  if (meeting.dirty() || settings.dirty() || importer.busy() || isActive(state.job)) { event.preventDefault(); event.returnValue = ''; }
+  if (templates.dirty() || meeting.dirty() || settings.dirty() || importer.busy() || isActive(state.job)) { event.preventDefault(); event.returnValue = ''; }
 });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 onUnauthorized(() => {

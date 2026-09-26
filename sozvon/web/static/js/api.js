@@ -1,6 +1,10 @@
 let csrf = '';
 let unauthorized = () => {};
 
+export class ApiError extends Error {
+  constructor(message, status = 0, payload = null) { super(message); this.name = 'ApiError'; this.status = status; this.payload = payload; }
+}
+
 export function onUnauthorized(callback) { unauthorized = callback; }
 
 export async function request(path, { method = 'GET', body, bootstrap = false } = {}) {
@@ -15,22 +19,22 @@ export async function request(path, { method = 'GET', body, bootstrap = false } 
       body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
     });
   } catch {
-    throw new Error('Нет связи с приложением. Проверьте, что оно запущено, и повторите действие.');
+    throw new ApiError('Нет связи с приложением. Проверьте, что оно запущено, и повторите действие.');
   }
   let payload;
   try { payload = await response.json(); } catch { payload = null; }
   if (!response.ok) {
     if (response.status === 401) {
       unauthorized();
-      throw new Error('Откройте приложение через ярлык. Эта сессия недоступна.');
+      throw new ApiError('Откройте приложение через ярлык. Эта сессия недоступна.', response.status, payload);
     }
     const detail = payload?.detail;
     const message = typeof detail === 'string' ? detail : Array.isArray(detail)
       ? detail.map(item => item.msg || 'Некорректное поле').join('; ')
       : `Приложение вернуло ошибку ${response.status}.`;
-    throw new Error(message);
+    throw new ApiError(message, response.status, payload);
   }
-  if (!payload || typeof payload !== 'object') throw new Error('Приложение вернуло некорректный ответ.');
+  if (!payload || typeof payload !== 'object') throw new ApiError('Приложение вернуло некорректный ответ.', response.status, payload);
   return payload;
 }
 

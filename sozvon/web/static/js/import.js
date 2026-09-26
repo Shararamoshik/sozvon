@@ -1,3 +1,4 @@
+import { isActiveJob } from './job-state.js';
 import { request } from './api.js';
 import { $, message, bindDialog, activateTabs } from './dom.js';
 
@@ -6,8 +7,7 @@ export function createImport({ isReady, getJob, openMeeting, refresh, openSettin
   const dialog = bindDialog($('new-dialog'), () => !submitting);
   const forms = ['new-text-form', 'new-audio-form', 'record-form'].map($);
   function activeJob() {
-    const job = getJob();
-    return job && !['done', 'completed', 'succeeded', 'success', 'failed', 'error', 'cancelled', 'canceled', 'stopped'].includes(job.status);
+    return isActiveJob(getJob());
   }
   function refreshActions() {
     forms.forEach(form => form.querySelectorAll('button[type=submit]').forEach(button => {

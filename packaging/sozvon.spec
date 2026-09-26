@@ -3,7 +3,7 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 root = Path(SPECPATH).parent
-bundled = ["av", "ctranslate2", "faster_whisper", "tokenizers", "onnxruntime", "sounddevice", "pyaudiowpatch"]
+bundled = ["av", "ctranslate2", "faster_whisper", "tokenizers", "onnxruntime", "sounddevice", "pyaudiowpatch", "reportlab"]
 datas = [(str(root / "sozvon" / "web" / "templates"), "sozvon/web/templates"),
          (str(root / "sozvon" / "web" / "static"), "sozvon/web/static")]
 binaries = []
@@ -15,7 +15,7 @@ for package in bundled:
     hiddenimports += hidden
 analysis = Analysis([str(root / "packaging" / "entry.py")], pathex=[str(root)],
                     binaries=binaries, datas=datas, hiddenimports=hiddenimports,
-                    excludes=["pytest", "playwright", "ruff"], noarchive=False)
+                    excludes=["pytest", "playwright", "ruff", "pypdf", "pypdfium2"], noarchive=False)
 archive = PYZ(analysis.pure)
 exe = EXE(archive, analysis.scripts, [], exclude_binaries=True, name="Sozvon",
           debug=False, bootloader_ignore_signals=False, strip=False, upx=False, console=True)

@@ -37,6 +37,11 @@ def ui_server():
                 data, mime = json.dumps({"csrf": "ui-test-only"}).encode(), "application/json"
             elif self.path == "/api/meetings":
                 data, mime = b'{"items":[],"job":null}', "application/json"
+            elif self.path == "/api/templates":
+                from sozvon.templates.builtin import builtin_spec
+                items = [{"id": key, "builtin": True, "archived": False, "revision": 1,
+                          "spec": builtin_spec(key).model_dump()} for key in ("meeting", "client", "technical")]
+                data, mime = json.dumps({"items": items}).encode(), "application/json"
             elif self.path == "/api/settings":
                 data, mime = json.dumps(settings).encode(), "application/json"
             else:
@@ -336,4 +341,15 @@ def test_stale_report_is_marked_and_cannot_jump_to_new_transcript(page):
     assert "устарел" in page.locator("#report-content").inner_text().lower()
     page.locator(".evidence-toggle").click()
     assert page.locator(".evidence-jump").is_disabled()
-    assert page.locator("#export-md").get_attribute("aria-disabled") == "true"
+    page.route("**/api/meetings/stale/export?**", lambda route: route.fulfill(
+        status=409, json={"detail": "Отчёт устарел: создайте новую версию"}))
+    downloads = []
+    page.on("download", lambda download: downloads.append(download))
+    page.locator("#export-button").click()
+    page.locator("#export-format").select_option("md")
+    page.locator("#download-export").click()
+    page.locator("#export-error").wait_for(state="visible")
+    assert "устарел" in page.locator("#export-error").inner_text()
+    assert not downloads
+    page.locator("#export-content").select_option("transcript")
+    assert not page.locator("#download-export").is_disabled()

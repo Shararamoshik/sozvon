@@ -1,17 +1,22 @@
+import { createExport } from './export.js';
 import { request } from './api.js';
-import { $, node, message, date, time, emptyState, activateTabs } from './dom.js';
+import { createTranscriptEditor } from './transcript-editor.js';
+import { $, node, message, date, time, emptyState, activateTabs, bindDialog } from './dom.js';
 
-const running = job => job && !['done', 'completed', 'succeeded', 'success', 'failed', 'error', 'cancelled', 'canceled', 'stopped', 'interrupted'].includes(job.status);
+import { isActiveJob as running } from './job-state.js';
 const sections = [['summary', 'Кратко'], ['decisions', 'Решения'], ['proposals', 'Предложения'], ['tasks', 'Задачи'], ['questions', 'Открытые вопросы'], ['risks', 'Риски']];
 
-export function createMeeting({ getSettings, getJob, reportError, refresh, isReady }) {
+export function createMeeting({ getSettings, getJob, reportError, refresh, isReady, guard }) {
   let current = null;
+  createExport({ getMeeting: () => current });
+  let sttCandidate = null;
+  const sttDialog = bindDialog($('stt-confirm-dialog'), () => !launching);
   let notesDirty = false;
   let saving = false;
   let launching = false;
   let notesRevision = 0;
   let reportSignature = '';
-  let transcriptSignature = '';
+  const editor = createTranscriptEditor({ request, showError: reportError, onSaved: data => update(data) });
   let sourcesSignature = '';
 
   function tab(value) { activateTabs('data-detail-tab', value); }
@@ -21,9 +26,11 @@ export function createMeeting({ getSettings, getJob, reportError, refresh, isRea
     const blocked = !isReady() || running(getJob()) || launching;
     const hasText = Boolean(current.segments?.length);
     const hasAudio = current.kind !== 'text';
+    const cloud = settings?.stt?.engine === 'cloud';
+    const sttReady = cloud ? Boolean(settings.stt.cloud?.endpoint && settings.stt.cloud?.model) : Boolean(settings?.stt?.model_path);
     $('transcribe-button').hidden = !hasAudio;
     $('transcribe-button').textContent = hasText ? 'Распознать заново' : 'Распознать аудио';
-    $('transcribe-button').disabled = blocked || !settings?.stt?.model_path;
+    $('transcribe-button').disabled = blocked || !sttReady;
     $('report-button').textContent = current.reports?.length ? 'Создать новый отчёт' : 'Создать отчёт';
     const configured = Boolean(settings?.llm?.base_url && settings?.llm?.model);
     $('report-button').disabled = blocked || !hasText || !configured;
@@ -31,10 +38,10 @@ export function createMeeting({ getSettings, getJob, reportError, refresh, isRea
     if (!isReady()) reason = 'Откройте приложение через ярлык.';
     else if (running(getJob()) || launching) reason = 'Дождитесь завершения текущей обработки.';
     else if (!settings) reason = 'Загрузка настроек… Если ожидание затянулось, откройте «Настройки».';
-    else if (!hasText && hasAudio && !settings.stt?.model_path) reason = 'Укажите локальную модель в настройках распознавания.';
+    else if (!hasText && hasAudio && !sttReady) reason = 'Укажите локальную модель в настройках распознавания.';
     else if (!hasText) reason = 'Для отчёта сначала нужна расшифровка.';
     else if (!configured) reason = 'Укажите адрес API и модель в настройках отчёта.';
-    else if (hasAudio && !settings.stt?.model_path) reason = 'Повторное распознавание недоступно: не указан каталог модели.';
+    else if (hasAudio && !sttReady) reason = 'Повторное распознавание недоступно: не указан каталог модели.';
     $('action-reason').textContent = reason;
     $('report-button').title = $('report-button').disabled ? reason : '';
     $('transcribe-button').title = $('transcribe-button').disabled ? reason : '';
@@ -61,11 +68,11 @@ export function createMeeting({ getSettings, getJob, reportError, refresh, isRea
     }
     const sorted = [...reports].sort((left, right) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime());
     const report = sorted[sorted.length - 1];
-    if (report.stale) container.append(node('p', 'notice', 'Отчёт устарел: расшифровка изменена. Создайте новую версию, чтобы проверить источники и экспортировать Markdown.'));
+    if (report.stale) container.append(node('p', 'notice', 'Отчёт устарел: расшифровка изменена. Создайте новую версию, для экспорта отчёта. Прежние источники доступны в истории.'));
     container.append(node('div', 'report-meta', `${date(report.created_at, true)} · ${report.model || 'Модель не указана'}${reports.length > 1 ? ` · Последний из ${reports.length} отчётов` : ''}`));
     let nonempty = false;
-    sections.forEach(([key, title]) => {
-      const items = report.document?.[key];
+    const ordered = report.sections || sections.map(([key, title]) => ({ key, title, kind: key === 'tasks' ? 'tasks' : 'statements', items: report.document?.[key] }));
+    ordered.forEach(({ title, kind, items }) => {
       if (!Array.isArray(items) || !items.length) return;
       nonempty = true;
       const section = node('section', 'report-section');
@@ -73,7 +80,7 @@ export function createMeeting({ getSettings, getJob, reportError, refresh, isRea
       items.forEach(item => {
         const article = node('article', 'report-item');
         article.append(node('p', '', item.text));
-        if (key === 'tasks') {
+        if (kind === 'tasks') {
           const meta = node('div', 'task-meta');
           meta.append(node('span', '', `Кто: ${item.owner || 'не указан'}`), node('span', '', `Срок: ${item.due || 'не указан'}`));
           article.append(meta);
@@ -88,9 +95,12 @@ export function createMeeting({ getSettings, getJob, reportError, refresh, isRea
             const quote = node('blockquote', 'evidence-quote', source.quote);
             const jump = node('button', 'evidence-jump', 'Открыть в расшифровке ↗');
             jump.type = 'button';
-            jump.disabled = Boolean(report.stale);
+            jump.disabled = Boolean(report.stale && !report.transcript_revision);
             if (report.stale) jump.title = 'Источник относится к предыдущей версии расшифровки';
-            jump.addEventListener('click', () => jumpToSegment(source.segment_id));
+            jump.addEventListener('click', () => {
+              if (report.stale || !current.segments?.some(row => row.id === source.segment_id)) editor.openHistory(report.transcript_revision, source.segment_id);
+              else jumpToSegment(source.segment_id);
+            });
             quote.append(jump);
             evidence.append(quote);
           });
@@ -106,28 +116,7 @@ export function createMeeting({ getSettings, getJob, reportError, refresh, isRea
     });
     if (!nonempty) container.append(emptyState('В отчёте нет пунктов', 'Модель не вернула содержательных пунктов. Исходный текст доступен во вкладке «Расшифровка».'));
   }
-  function renderTranscript() {
-    const segments = current.segments || [];
-    const signature = JSON.stringify(segments);
-    if (signature === transcriptSignature) return;
-    transcriptSignature = signature;
-    const container = $('transcript-content');
-    container.replaceChildren();
-    if (!segments.length) {
-      container.append(emptyState('Пока без расшифровки', current.kind === 'text' ? 'В этой записи нет текстовых фрагментов.' : 'Запустите распознавание аудио. Для этого потребуется локальная модель.'));
-      return;
-    }
-    [...segments].sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0)).forEach((segment, index) => {
-      const article = node('article', 'segment');
-      article.tabIndex = -1;
-      article.dataset.segmentId = String(segment.id);
-      const meta = node('div', 'segment-meta');
-      meta.append(node('div', '', current.kind === 'text' ? `§ ${index + 1}` : time(segment.start_ms)));
-      if (segment.speaker) meta.append(node('div', '', segment.speaker));
-      article.append(meta, node('p', '', segment.text));
-      container.append(article);
-    });
-  }
+
   function renderSources() {
     const sources = current.sources || [];
     const signature = JSON.stringify(sources);
@@ -158,27 +147,17 @@ export function createMeeting({ getSettings, getJob, reportError, refresh, isRea
     const kind = { text: 'Текстовая запись', audio: 'Аудиофайл', recording: 'Запись разговора' }[current.kind] || 'Запись';
     $('meeting-meta').textContent = [kind, current.duration_ms ? time(current.duration_ms) : null].filter(Boolean).join(' · ');
     message('meeting-error', current.error || '');
-    const base = `/api/meetings/${encodeURIComponent(current.id)}/export`;
-    const latest = [...(current.reports || [])].sort((a,b) => new Date(b.created_at) - new Date(a.created_at))[0];
-    if (latest?.stale) {
-      $('export-md').removeAttribute('href');
-      $('export-md').setAttribute('aria-disabled', 'true');
-      $('export-md').title = 'Сначала создайте актуальную версию отчёта';
-    } else {
-      $('export-md').href = `${base}?format=md`;
-      $('export-md').removeAttribute('aria-disabled');
-      $('export-md').title = '';
-    }
-    $('export-json').href = `${base}?format=json`;
-    renderReport(); renderTranscript(); renderSources(); refreshActions();
+
+    renderReport(); editor.update(current); renderSources(); refreshActions();
   }
   function show(data) {
     current = data;
+    editor.show(data);
     notesDirty = false;
     notesRevision += 1;
     $('meeting-notes').value = current.notes || '';
     $('notes-status').textContent = 'Заметки сохраняются отдельно от отчёта.';
-    reportSignature = transcriptSignature = sourcesSignature = '';
+    reportSignature = sourcesSignature = '';
     render();
     tab(current.reports?.length ? 'report' : 'transcript');
   }
@@ -217,22 +196,51 @@ export function createMeeting({ getSettings, getJob, reportError, refresh, isRea
       reportError(error);
     } finally { saving = false; refreshActions(); }
   });
-  async function launch(operation) {
+  async function launch(operation, body = {}) {
     if (!current || launching || running(getJob())) return;
     launching = true;
     message('global-error');
     refreshActions();
     try {
       const suffix = operation === 'report' ? '/report' : '/transcribe';
-      await request(`/api/meetings/${encodeURIComponent(current.id)}${suffix}`, { method: 'POST', body: {} });
+      await request(`/api/meetings/${encodeURIComponent(current.id)}${suffix}`, { method: 'POST', body });
+      launching = false;
+      sttDialog.close();
       await refresh();
+    } catch (error) { if ($('stt-confirm-dialog').open) message('stt-confirm-error', error.message); else reportError(error); }
+    finally { launching = false; refreshActions(); $('confirm-stt').disabled = false; }
+  }
+  $('transcribe-button').addEventListener('click', () => guard(async () => {
+    launching = true; refreshActions();
+    try {
+      const settings = await request('/api/settings');
+      const revision = current.transcript_revision ?? current.segments?.[0]?.revision ?? (current.segments?.length ? 1 : 0);
+      sttCandidate = { base_revision: revision, replace_confirmed: false, cloud_confirmed_url: null };
+      const cloud = settings.stt?.engine === 'cloud';
+      if (!cloud && !revision) { launching = false; await launch('transcribe', sttCandidate); return; }
+      sttCandidate.cloud_confirmed_url = cloud ? settings.stt.cloud.endpoint : null;
+      $('stt-confirm-copy').textContent = cloud ? `Аудиозапись будет отправлена на ${sttCandidate.cloud_confirmed_url}. Сервис может списать средства. Локальные оригиналы сохранятся.` : 'Результат станет новой версией. Прежние правки сохранятся в истории.';
+      $('stt-replace-label').hidden = !revision;
+      $('stt-replace-confirmed').checked = false;
+      $('confirm-stt').textContent = cloud ? 'Отправить и распознать' : 'Распознать заново';
+      message('stt-confirm-error');
+      launching = false; refreshActions(); $('transcribe-button').focus();
+      sttDialog.open();
     } catch (error) { reportError(error); }
     finally { launching = false; refreshActions(); }
-  }
-  $('transcribe-button').addEventListener('click', () => launch('transcribe'));
-  $('report-button').addEventListener('click', () => launch('report'));
+  }));
+  $('cancel-stt').addEventListener('click', () => sttDialog.close());
+  $('confirm-stt').addEventListener('click', () => {
+    if (sttCandidate.base_revision && !$('stt-replace-confirmed').checked) {
+      message('stt-confirm-error', 'Подтвердите создание новой версии расшифровки.'); return;
+    }
+    sttCandidate.replace_confirmed = $('stt-replace-confirmed').checked;
+    $('confirm-stt').disabled = true;
+    launch('transcribe', { ...sttCandidate });
+  });
+  $('report-button').addEventListener('click', () => guard(() => launch('report')));
   return {
-    show, update, tab, refreshActions, id: () => current?.id, dirty: () => notesDirty,
-    discard() { notesDirty = false; notesRevision += 1; if (current) $('meeting-notes').value = current.notes || ''; refreshActions(); },
+    show, update, tab, refreshActions, busy: () => saving || launching || editor.busy(), id: () => current?.id, dirty: () => notesDirty || editor.dirty(),
+    discard() { editor.discard(); notesDirty = false; notesRevision += 1; if (current) $('meeting-notes').value = current.notes || ''; refreshActions(); },
   };
 }

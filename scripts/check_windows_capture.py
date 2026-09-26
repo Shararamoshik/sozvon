@@ -10,7 +10,8 @@ import winsound
 from sozvon.runtime.host import WorkerHost
 
 ROOT = Path(__file__).resolve().parents[1]
-host_args = {"command": [str(ROOT / "dist/Sozvon/Sozvon.exe"), "--worker"]} if "--frozen" in sys.argv else {}
+exe = Path(sys.argv[sys.argv.index("--exe") + 1]).resolve() if "--exe" in sys.argv else ROOT / "dist/Sozvon/Sozvon.exe"
+host_args = {"command": [str(exe), "--worker"]} if "--frozen" in sys.argv or "--exe" in sys.argv else {}
 folder = ROOT / "artifacts" / (("frozen-capture-" if host_args else "capture-") + str(time.time_ns()))
 folder.mkdir(parents=True)
 events = []
