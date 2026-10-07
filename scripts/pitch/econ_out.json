@@ -1,0 +1,15 @@
+{
+  "tam_rub": 600000000.0,
+  "sam_rub": 180000000.0,
+  "som_rub": 1650000.0,
+  "tam_orgs": 1000,
+  "sam_orgs": 300,
+  "license_year": "600 000 ₽",
+  "pilot": "150 000 ₽",
+  "tam_million": "600,0 млн ₽",
+  "sam_million": "180,0 млн ₽",
+  "som_million": "1,65 млн ₽",
+  "break_even_clients": "12,0",
+  "cloud_25min": "4,57 ₽",
+  "competitor_onpremise": "3,00 млн ₽"
+}

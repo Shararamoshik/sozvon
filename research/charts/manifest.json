@@ -1,0 +1,89 @@
+[
+  {
+    "chart": "market_segmentation.png",
+    "note": "Вложенные сегменты TAM/SAM/SOM с формулой и пометкой допущений",
+    "keys": [
+      "org_count_industrial",
+      "protocol_share",
+      "license_price_year",
+      "pilot_price"
+    ],
+    "assumptions": [
+      "число организаций SAM",
+      "доля с обязательным протоколом",
+      "цены лицензии и пилота"
+    ],
+    "sha256": "2a66616fdd73c15833b1223c3114532301ec02d6191069c5df1cf1c1b4fbc010",
+    "bytes": 177109
+  },
+  {
+    "chart": "adoption.png",
+    "note": "Почти треть пользователей ИИ уже обрабатывает текст и звук",
+    "keys": [
+      "hse_share_speech_text",
+      "hse_share_vision",
+      "hse_share_decisions",
+      "hse_share_efficiency"
+    ],
+    "assumptions": [],
+    "sha256": "0d09cc4755b6666d845954366de8435c2b6ae0dec5219a230281f2e84692bb97",
+    "bytes": 105110
+  },
+  {
+    "chart": "market_growth.png",
+    "note": "Рынок вырос с ~30 до 433 млрд руб. за пять лет; верхний контекст, не сегмент",
+    "keys": [
+      "market_bigdata_ai_2019",
+      "market_bigdata_ai_2024",
+      "market_bigdata_ai_growth"
+    ],
+    "assumptions": [],
+    "sha256": "ed2ad9fb2f4f270c3f97d56d7bc030276254be5dc48b7963108415a58ececb8c",
+    "bytes": 85602
+  },
+  {
+    "chart": "competitors_map.png",
+    "note": "Карта 2×2: конкуренты уже автоматизируют отчёты; on-premise у FollowUP есть",
+    "keys": [],
+    "assumptions": [
+      "позиции конкурентов на осях — экспертная оценка"
+    ],
+    "sha256": "3d8f5772871bc88ed63fde741d4551241c6790ce596bca83a3a5612b6d69e9a7",
+    "bytes": 138117
+  },
+  {
+    "chart": "cost.png",
+    "note": "Измеренная себестоимость часа против публичных тарифов; единицы разные и не смешиваются",
+    "keys": [
+      "our_cloud_stt_25min",
+      "followup_price_month",
+      "mymeet_price_month",
+      "followup_onprem_cost"
+    ],
+    "assumptions": [],
+    "sha256": "39cb1ab954f50cd3a4162d1e8b90116bc06825acded9872fb2162294a2c8652c",
+    "bytes": 111660
+  },
+  {
+    "chart": "data_flow.png",
+    "note": "Где данные остаются на компьютере, а где требуют разрешения на сеть",
+    "keys": [],
+    "assumptions": [
+      "схема по документации проекта — описание, не измерение"
+    ],
+    "sha256": "0fab755cb3da0a66c4f48fc1a7faa85c0e44a22d7a62a209f5c080fd037c44a1",
+    "bytes": 79834
+  },
+  {
+    "chart": "pilot_plan.png",
+    "note": "Как будет измеряться эффект: ручная база против черновика на одних и тех же записях",
+    "keys": [
+      "pilot_records"
+    ],
+    "assumptions": [
+      "состав метрик и порядок пилота — план команды"
+    ],
+    "sha256": "96d563b242f3731a55d24fe93bc7d625c9ad6f37ad7340833f537808dd68980a",
+    "bytes": 113265
+  }
+]

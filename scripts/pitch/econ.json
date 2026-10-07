@@ -1,0 +1,18 @@
+{
+  "price_license_year_rub": {"value": 600000, "assumption": true,
+    "note": "гипотеза цены годовой лицензии на одно дочернее общество; проверить на интервью"},
+  "price_pilot_rub": {"value": 150000, "assumption": true,
+    "note": "гипотеза цены пилота на 10-20 записей одного типа встреч"},
+  "organizations_sam": {"value": 300, "assumption": true,
+    "note": "число организаций в SAM (промышленные холдинги с дочерними обществами); внешний источник не подтверждён"},
+  "protocol_share": {"value": 0.3, "assumption": true,
+    "note": "доля организаций, где протокол обязателен по регламенту"},
+  "meetings_per_org_year": {"value": 200, "assumption": true,
+    "note": "регулярные технические совещания одной организации в год"},
+  "team_cost_year_rub": {"value": 7200000, "assumption": true,
+    "note": "команда 4 человека x 150 000 руб./мес x 12 мес"},
+  "cloud_stt_per_25min_rub": {"value": 4.57, "source": "docs/VERIFICATION.md",
+    "note": "замер собственного прогона: распознавание 25 минут аудио"},
+  "competitor_onpremise_rub": {"value": 3000000, "source": "https://follow-up.tech/on-premise/",
+    "note": "заявленная стоимость локального размещения у конкурента"}
+}
